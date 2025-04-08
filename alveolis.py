@@ -6,62 +6,74 @@ import numpy as np
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications.efficientnet import preprocess_input
 from tensorflow.keras.models import load_model
+import matplotlib.pyplot as plt
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
-# Cargar el modelo previamente entrenado
 model = load_model("modelo_alveolis.h5")
 
-# Definir las clases (enfermedades) que el modelo puede predecir
 CLASES_ES = [
     "Pulmón sano", "Procesos inflamatorios", "Derrame pleural", "Neumonía (menor densidad)",
     "EPOC y similares", "Infecciones pulmonares", "Lesiones encapsuladas",
     "Alteraciones mediastínicas", "Alteraciones torácicas atípicas"
 ]
 
-# Ruta donde se encuentran las radiografías
-radiografias_folder = 'radiografias/'  # Cambia esto con tu ruta real
-
-# Función para cargar y preprocesar una imagen
-def load_and_preprocess_image(img_path):
-    img = image.load_img(img_path, target_size=(224, 224))
-    img_array = image.img_to_array(img)
+def load_and_preprocess_image(img):
+    img = img.resize((224, 224))
+    img_array = np.array(img)
     img_prep = preprocess_input(np.expand_dims(img_array, axis=0))
     return img_array, img_prep
 
-# Función principal
+def mostrar_imagen_con_diagnostico(imagen_path, diagnostico, conf):
+    img = cv2.imread(imagen_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    plt.imshow(img)
+    plt.title(f"Radiografía: {diagnostico} - Confianza: {conf:.2%}")
+    plt.axis('off')
+    plt.show()
+
+def generar_pdf(imagen_path, diagnostico, conf, sintomas, output_pdf_path):
+    c = canvas.Canvas(output_pdf_path, pagesize=letter)
+    c.drawString(72, 750, f"Informe Médico")
+    c.drawString(72, 735, f"Diagnóstico: {diagnostico}")
+    c.drawString(72, 720, f"Confianza: {conf:.2%}")
+    c.drawString(72, 705, f"Síntomas del paciente: {sintomas}")
+    c.drawString(72, 690, f"Radiografía: {imagen_path}")
+    c.drawImage(imagen_path, 72, 400, width=400, height=300)
+    c.save()
+
 def main():
-    st.title('Diagnóstico Médico de Radiografías')
+    st.title('Sistema de Diagnóstico Médico de Radiografías')
 
-    # Obtener lista de todas las imágenes en la carpeta y subcarpetas
-    imagenes = []
-    for root, dirs, files in os.walk(radiografias_folder):
-        for file in files:
-            if file.endswith('.jpg') or file.endswith('.png'):  # Asegúrate de que las imágenes sean .jpg o .png
-                imagenes.append(os.path.join(root, file))
-
-    # Verificar si hay imágenes disponibles
-    if imagenes:
-        # Seleccionar una imagen aleatoriamente
-        imagen_seleccionada = random.choice(imagenes)
-
-        # Cargar y preprocesar la imagen
-        img_array, img_prep = load_and_preprocess_image(imagen_seleccionada)
+    sintomas = st.text_area("Ingrese los síntomas del paciente", "")
+    
+    if sintomas:
+        uploaded_file = st.file_uploader("Suba la radiografía del paciente", type=["jpg", "png", "jpeg"])
         
-        # Mostrar la imagen seleccionada
-        st.image(imagen_seleccionada, caption="Radiografía Seleccionada", use_column_width=True)
+        if uploaded_file is not None:
+            img = image.load_img(uploaded_file)
+            img_array, img_prep = load_and_preprocess_image(img)
+            st.image(uploaded_file, caption="Radiografía Cargada", use_column_width=True)
 
-        # Realizar la predicción con el modelo
-        preds = model.predict(img_prep)
-        pred_idx = int(np.argmax(preds[0]))
-        conf = float(np.max(preds[0]))
+            preds = model.predict(img_prep)
+            pred_idx = int(np.argmax(preds[0]))
+            conf = float(np.max(preds[0]))
 
-        # Mostrar el diagnóstico
-        diagnostico = CLASES_ES[pred_idx]
-        st.write(f"**Diagnóstico**: {diagnostico}")
-        st.write(f"**Confianza**: {conf:.2%}")
+            diagnostico = CLASES_ES[pred_idx]
 
+            st.write(f"**Diagnóstico**: {diagnostico}")
+            st.write(f"**Confianza**: {conf:.2%}")
+
+            mostrar_imagen_con_diagnostico(uploaded_file, diagnostico, conf)
+
+            output_pdf_path = "/mnt/data/diagnostico_radiografia.pdf"
+            generar_pdf(uploaded_file, diagnostico, conf, sintomas, output_pdf_path)
+
+            st.download_button("Descargar informe médico en PDF", data=open(output_pdf_path, "rb").read(), file_name="diagnostico_radiografia.pdf")
+        else:
+            st.write("Por favor, cargue una radiografía.")
     else:
-        st.write("No se encontraron imágenes en la carpeta 'radiografias'.")
+        st.write("Por favor, ingrese los síntomas del paciente.")
 
-# Ejecutar la aplicación
 if __name__ == '__main__':
     main()
